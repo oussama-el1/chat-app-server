@@ -147,8 +147,6 @@ io.on("connection", async (socket) => {
       participants: { $all: [user_id] },
     }).populate("participants", "firstName lastName avatar _id email status");
 
-    console.log(existing_conversations);
-
     callback(existing_conversations);
   });
 
@@ -201,42 +199,56 @@ io.on("connection", async (socket) => {
 
   // listen for event => "text/link message"
   socket.on("text_message", async (data) => {
-    console.log("Recived message:", data);
-    
-    // data: {to, from, message, conversation_id, type}
-    const { message, conversation_id, from, to, type } = data;
-
-    const to_user = await User.findById(to);
-    const from_user = await User.findById(from);
-
-    // message => {to, from, type, created_at, text, file}
-
-    const new_message = {
-      to: to,
-      from: from,
-      type: type,
-      created_at: Date.now(),
-      text: message,
-    };
-
-    // fetch OneToOneMessage Doc & push a new message to existing conversation
-    const chat = await OneToOneMessage.findById(conversation_id);
-    chat.messages.push(new_message);
-
-    // save to db`
-    await chat.save({ new: true, validateModifiedOnly: true });
-
-    // emit new_message -> to user
-    io.to(to_user?.socket_id).emit("new_message", {
-      conversation_id,
-      message: new_message,
-    });
-
-    // emit new_message -> from user
-    io.to(from_user?.socket_id).emit("new_message", {
-      conversation_id,
-      message: new_message,
-    });
+    try {
+      console.log("Received message:", data);
+      
+      // data: {to, from, message, conversation_id, type}
+      const { message, conversation_id, from, to, type } = data;
+  
+      const to_user = await User.findById(to);
+      const from_user = await User.findById(from);
+  
+      // message => {to, from, type, created_at, text, file}
+      const new_message = {
+        to: to,
+        from: from,
+        type: type,
+        created_at: Date.now(),
+        text: message,
+      };
+  
+      // fetch OneToOneMessage Doc & push a new message to existing conversation
+      const chat = await OneToOneMessage.findById(conversation_id);
+      
+      if (!chat) {
+        console.log("the data is : ", data)
+        console.error(`Conversation with ID ${conversation_id} not found.`);
+        return;
+      }
+      
+      chat.messages.push(new_message);
+  
+      // save to db
+      await chat.save({ new: true, validateModifiedOnly: true });
+  
+      // emit new_message -> to user
+      if (to_user?.socket_id) {
+        io.to(to_user.socket_id).emit("new_message", {
+          conversation_id,
+          message: new_message,
+        });
+      }
+  
+      // emit new_message -> from user
+      if (from_user?.socket_id) {
+        io.to(from_user.socket_id).emit("new_message", {
+          conversation_id,
+          message: new_message,
+        });
+      }
+    } catch (error) {
+      console.error("Error handling text_message event:", error);
+    }
   });
 
   // listen for event => "media message"
